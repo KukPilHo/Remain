@@ -175,6 +175,13 @@ export default function Home() {
         </div>
 
         {ttsError && <p className="error-text" style={{ fontSize: '0.95rem' }}>{ttsError}</p>}
+        
+        <div style={{ marginTop: '2.5rem', textAlign: 'center' }}>
+          <p className="text-sm text-gray-500 mb-2">테스트용 바로가기</p>
+          <Link href="/admin" className="px-5 py-2.5 bg-[#eef1ed] text-[#2F6F4F] border border-[#2F6F4F]/20 rounded-xl text-sm font-bold shadow-sm hover:bg-[#d8e3da] transition block w-fit mx-auto">
+             ⚙️ 관리자(Admin) 모드 접속
+          </Link>
+        </div>
       </section>
     </main>
   );
