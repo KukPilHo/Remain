@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
+import { getAiConfig } from '@/lib/ai-config';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -42,10 +43,11 @@ export async function POST(request: Request) {
     }
 
     // Whisper API 호출
+    const aiConfig = getAiConfig();
     const transcription = await openai.audio.transcriptions.create({
-      model: 'whisper-1',
+      model: aiConfig.stt.model,
       file: audioFile,
-      language: 'ko', // 한국어 고정 → 정확도 향상
+      language: aiConfig.stt.language, // Config-driven language
       response_format: 'json',
     });
 

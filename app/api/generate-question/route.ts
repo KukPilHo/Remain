@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
+import { getAiConfig } from '@/lib/ai-config';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -23,11 +24,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const aiConfig = getAiConfig();
+
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: aiConfig.llm.model,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 200,
-      temperature: 0.7,
+      max_tokens: aiConfig.llm.max_tokens,
+      temperature: aiConfig.llm.temperature,
     });
 
     const text = completion.choices[0]?.message?.content || '';

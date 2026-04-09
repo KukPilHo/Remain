@@ -1,0 +1,18 @@
+# Girokhada AI Models Configuration
+# 이 파일에서 서비스 내 사용되는 모든 AI 모델의 종류와 기본 파라미터를 교체 및 관리할 수 있습니다.
+
+# [대화의 두뇌] 질문 생성, 꼬리질문, 응답 생성 등을 담당합니다.
+llm:
+  model: "gpt-5.4-mini"  # 사용자가 지정하신 신형/커스텀 모델명
+  temperature: 0.7
+  max_tokens: 200
+
+# [귀] 음성 인식 (Speech-to-Text)을 담당합니다.
+stt:
+  model: "whisper-1"
+  language: "ko"
+
+# [목소리] 음성 합성 (Text-to-Speech)을 담당합니다.
+tts:
+  model: "tts-1"
+  voice: "alloy"

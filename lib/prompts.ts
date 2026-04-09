@@ -1,17 +1,17 @@
-import type { Turn } from '@/types';
+import type { Turn, FollowUpTemplate } from '@/types';
 
 /**
- * 인터뷰 꼬리질문 생성 프롬프트 (고도화 버전)
- * 대표님 예시:
- * 챗봇: "첫 월급 탔을 때 기억나세요? 뭘 제일 먼저 하셨나요?"
- * 사용자: "부모님 내복 사드렸지." → 단답
- * 챗봇: "아, 빨간 내복이요? 받으시고 부모님이 참 좋아하셨겠어요! 그때 부모님이 뭐라고 말씀하셨는지 기억나세요?"
+ * 인터뷰 꼬리질문 생성 프롬프트 (하이브리드 버전)
+ * - 사전 설계된 꼬리질문이 있으면 AI 가이드로 활용
+ * - 없으면 기존처럼 100% AI 자유 생성
  */
 export function buildInterviewPrompt(
   parentName: string,
   topic: string,
   originalQuestion: string,
-  conversationHistory: Turn[]
+  conversationHistory: Turn[],
+  followUpTemplates?: FollowUpTemplate[],
+  usedFollowUpIndices?: number[]
 ): string {
   const historyText = conversationHistory
     .map(
@@ -19,6 +19,31 @@ export function buildInterviewPrompt(
         `${t.role === 'ai' ? '인터뷰어' : parentName + '님'}: ${t.text}`
     )
     .join('\n');
+
+  // 꼬리질문 가이드 섹션 (템플릿이 있을 때만 추가)
+  let followUpGuideSection = '';
+  if (followUpTemplates && followUpTemplates.length > 0) {
+    const sortedTemplates = [...followUpTemplates].sort((a, b) => a.sort_order - b.sort_order);
+    const templateList = sortedTemplates
+      .map((t, i) => `${i + 1}. "${t.follow_up_text}"`)
+      .join('\n');
+
+    const usedList = usedFollowUpIndices && usedFollowUpIndices.length > 0
+      ? `\n- 이미 대화에서 다룬 질문 번호: ${usedFollowUpIndices.map(i => i + 1).join(', ')} (이 질문들은 다시 사용하지 마세요)`
+      : '';
+
+    followUpGuideSection = `
+## 꼬리질문 가이드 (관리자가 미리 설계한 질문들)
+아래는 이 인터뷰를 위해 미리 준비된 꼬리질문입니다:
+${templateList}
+
+### 꼬리질문 사용 규칙
+- 위 가이드 질문 중 지금 대화 흐름에 가장 자연스러운 것을 골라 활용하세요.
+- 단, 기계적으로 순서대로 던지지 말고, 답변 내용에 맞게 자연스럽게 말투를 변형하세요.
+- 답변이 풍부하고 깊이가 있으면, 가이드에 없는 더 깊은 꼬리질문을 자유롭게 만들어도 좋습니다.
+- 답변이 짧거나 부족하면, 가이드 질문을 더 쉽고 구체적으로 바꿔서 물어보세요.${usedList}
+`;
+  }
 
   return `당신은 한국의 따뜻한 손주 같은 생애 인터뷰어입니다.
 지금 ${parentName}님과 편안한 대화를 나누고 있습니다.
@@ -35,7 +60,7 @@ export function buildInterviewPrompt(
    - 예: "받으시고 부모님이 참 좋아하셨겠어요! 그때 부모님이 뭐라고 말씀하셨는지 기억나세요?"
 3. 단답("네", "좋았어")이 오면 → 더 구체적인 오감(시각, 촉각, 소리, 냄새, 맛)이나 감정을 물어보세요.
 4. 긴 답변이 오면 → 핵심 감정에 공감하고, 관련된 또 다른 에피소드가 있는지 살짝 물어보세요.
-
+${followUpGuideSection}
 ## 절대 하지 말 것
 - ❌ 2개 이상 질문 동시에 던지기
 - ❌ "그렇군요. 다음 질문입니다" 같은 딱딱한 전환

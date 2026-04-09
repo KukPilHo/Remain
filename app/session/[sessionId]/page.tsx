@@ -6,9 +6,10 @@ import { startRecording, stopRecording, getFileExtension, type RecordingSession 
 import { buildInterviewPrompt, buildClosingPrompt } from '@/lib/prompts';
 import ConversationLog from '@/components/ConversationLog';
 import MemoryStimulator from '@/components/MemoryStimulator';
-import type { Turn, SessionState } from '@/types';
+import type { Turn, SessionState, FollowUpTemplate } from '@/types';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { Camera, Upload, X, Check } from 'lucide-react';
 
 const MAX_PARENT_TURNS = 4;
 const PARENT_NAME = '어르신';
@@ -21,6 +22,16 @@ export default function SessionPage() {
 
   const [dbQuestion, setDbQuestion] = useState<any>(null);
   const [loadingInitial, setLoadingInitial] = useState(true);
+
+  /* ── 꼬리질문 템플릿 ── */
+  const [followUpTemplates, setFollowUpTemplates] = useState<FollowUpTemplate[]>([]);
+  const [usedFollowUpIndices, setUsedFollowUpIndices] = useState<number[]>([]);
+
+  /* ── 사진 업로드 (대화 완료 후) ── */
+  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoSaved, setPhotoSaved] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [session, setSession] = useState<SessionState>({
     sessionId,
@@ -47,6 +58,7 @@ export default function SessionPage() {
     
     const fetchQuestion = async () => {
       try {
+        // 질문 데이터 로드
         const { data, error } = await supabase
           .from('questions')
           .select('*')
@@ -58,10 +70,19 @@ export default function SessionPage() {
         }
         if (data) {
           setDbQuestion(data);
-          // DB에 저장된 recipient_name이 있으면 그걸 우선 사용
           if (data.recipient_name) {
             setSession(prev => ({ ...prev, parentName: data.recipient_name }));
           }
+        }
+
+        // 꼬리질문 템플릿 로드
+        const { data: fuData, error: fuError } = await supabase
+          .from('follow_up_templates')
+          .select('*')
+          .eq('question_id', sessionId)
+          .order('sort_order', { ascending: true });
+        if (!fuError && fuData) {
+          setFollowUpTemplates(fuData as FollowUpTemplate[]);
         }
       } catch (err) {
         console.error(err);
@@ -97,7 +118,6 @@ export default function SessionPage() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '음성 변환에 실패했습니다.');
 
-        // Transcribed text obtained, auto submit it!
         handleAnswerSubmit(data.text);
       } catch (err: any) {
         setErrorMessage(err.message || '음성을 처리하는데 실패했습니다.');
@@ -143,7 +163,14 @@ export default function SessionPage() {
 
       const prompt = isLastTurn
         ? buildClosingPrompt(session.parentName, updatedTurns)
-        : buildInterviewPrompt(session.parentName, session.topic, dbQuestion?.content?.text || '', updatedTurns);
+        : buildInterviewPrompt(
+            session.parentName,
+            session.topic,
+            dbQuestion?.content?.text || '',
+            updatedTurns,
+            followUpTemplates.length > 0 ? followUpTemplates : undefined,
+            usedFollowUpIndices.length > 0 ? usedFollowUpIndices : undefined
+          );
 
       const llmResponse = await fetch('/api/generate-question', {
         method: 'POST',
@@ -153,6 +180,14 @@ export default function SessionPage() {
       const llmData = await llmResponse.json();
 
       if (!llmResponse.ok) throw new Error(llmData.error || '질문 생성에 실패했습니다.');
+
+      // 사용된 꼬리질문 추적 (간단하게 턴 번호 기반)
+      if (!isLastTurn && followUpTemplates.length > 0) {
+        const nextIdx = usedFollowUpIndices.length;
+        if (nextIdx < followUpTemplates.length) {
+          setUsedFollowUpIndices(prev => [...prev, nextIdx]);
+        }
+      }
 
       const aiTurn: Turn = { role: 'ai', text: llmData.text, timestamp: new Date() };
       setSession(prev => ({ ...prev, turns: [...prev.turns, aiTurn], status: 'asking' }));
@@ -177,6 +212,57 @@ export default function SessionPage() {
       setSession(prev => ({ ...prev, status: 'waiting_answer' }));
       setProcessingStep('');
     }
+  };
+
+  /* ── 사진 업로드 핸들러 (대화 완료 후) ── */
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setPhotoUploading(true);
+    const newUrls: string[] = [];
+
+    for (const file of Array.from(files)) {
+      try {
+        const ext = file.name.split('.').pop();
+        const fileName = `${sessionId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error } = await supabase.storage
+          .from('photos')
+          .upload(fileName, file, { cacheControl: '3600', upsert: false });
+        if (error) {
+          console.error('사진 업로드 실패:', error);
+          continue;
+        }
+        const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
+        if (urlData?.publicUrl) newUrls.push(urlData.publicUrl);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (newUrls.length > 0) {
+      setUploadedPhotos(prev => [...prev, ...newUrls]);
+      // DB에 사진 URL 저장 (가장 최근 응답에 첨부)
+      try {
+        const { data: latestResp } = await supabase
+          .from('responses')
+          .select('id, photo_urls')
+          .eq('question_id', sessionId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (latestResp) {
+          const existing = latestResp.photo_urls || [];
+          await supabase
+            .from('responses')
+            .update({ photo_urls: [...existing, ...newUrls] })
+            .eq('id', latestResp.id);
+        }
+      } catch (err) { console.error(err); }
+    }
+
+    setPhotoUploading(false);
+    if (photoInputRef.current) photoInputRef.current.value = '';
   };
 
   const handleFastForwardComplete = useCallback(async () => {
@@ -285,9 +371,60 @@ export default function SessionPage() {
           <div className="p-10 text-center flex flex-col items-center flex-1 justify-center">
             <div className="text-6xl mb-6">🎉</div>
             <h3 className="text-2xl font-bold mb-4 text-[#4a4238]">모든 대화가 무사히 기록되었습니다.</h3>
-            <p className="text-[#6d6455] text-lg mb-8 leading-relaxed">
+            <p className="text-[#6d6455] text-lg mb-6 leading-relaxed">
               소중한 이야기를 들려주셔서 대단히 감사합니다.<br/>멋진 자서전의 한 페이지가 완성되었어요!
             </p>
+
+            {/* ── 사진 업로드 영역 ── */}
+            {dbQuestion?.photo_request && (
+              <div className="w-full max-w-md bg-[#fef9f1] rounded-2xl border border-[#ebd8c5] p-6 mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Camera size={20} className="text-[#8B7355]" />
+                  <h4 className="font-bold text-[#4a4238]">추억 사진을 남겨주세요</h4>
+                </div>
+                <p className="text-sm text-[#6d6455] mb-4 leading-relaxed">
+                  📸 {dbQuestion.photo_request}
+                </p>
+
+                {/* 업로드된 사진들 미리보기 */}
+                {uploadedPhotos.length > 0 && (
+                  <div className="flex gap-2 flex-wrap mb-4">
+                    {uploadedPhotos.map((url, i) => (
+                      <div key={i} className="relative group">
+                        <img src={url} alt={`업로드된 사진 ${i + 1}`} className="w-20 h-20 object-cover rounded-xl border border-[#ebd8c5] shadow-sm" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-xl transition" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={photoUploading}
+                  className="w-full py-3 bg-white border-2 border-dashed border-[#8B7355]/30 rounded-xl text-[#8B7355] font-bold hover:bg-[#f5ede3] transition flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {photoUploading ? (
+                    <>⏳ 업로드 중...</>
+                  ) : (
+                    <><Upload size={18} /> 사진 선택하기</>
+                  )}
+                </button>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+                {uploadedPhotos.length > 0 && (
+                  <p className="text-xs text-[#2F6F4F] mt-2 font-medium flex items-center gap-1 justify-center">
+                    <Check size={14} /> {uploadedPhotos.length}장의 사진이 저장되었습니다
+                  </p>
+                )}
+              </div>
+            )}
+
             <Link href="/" className="px-8 py-3 bg-[#eef1ed] text-[#2F6F4F] font-bold rounded-xl hover:bg-[#d8e3da] transition border border-[#2F6F4F]/20">
               처음으로 돌아가기
             </Link>

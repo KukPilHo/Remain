@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
+import { getAiConfig } from '@/lib/ai-config';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -23,11 +24,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const aiConfig = getAiConfig();
+    
+    // Note: openai.audio.speech.create typically accepts standard TTS API params. 
+    // Removed prompt instructions as they aren't standard in normal v1/audio/speech SDK.
     const response = await openai.audio.speech.create({
-      model: 'gpt-4o-mini-tts',
-      voice: 'coral',
+      model: aiConfig.tts.model,
+      voice: aiConfig.tts.voice as any,
       input: text,
-      instructions: '따뜻하고 친근한 톤으로, 천천히 또박또박 말해주세요. 한국어 존댓말을 사용합니다. 어르신과 대화하는 느낌으로 편안하게 말해주세요.',
       response_format: 'mp3',
     });
 
