@@ -108,8 +108,11 @@ export default function Home() {
   return (
     <main className="main-container">
       <header className="header">
+        {/* decorative line */}
+        <div className="w-12 h-px bg-light-taupe mx-auto mb-4" />
         <h1 className="title">기록하다</h1>
         <p className="subtitle">부모님의 이야기를 AI가 기록합니다</p>
+        <div className="w-12 h-px bg-light-taupe mx-auto mt-4" />
       </header>
 
       {/* 결과 표시 */}
@@ -177,8 +180,8 @@ export default function Home() {
         {ttsError && <p className="error-text" style={{ fontSize: '0.95rem' }}>{ttsError}</p>}
         
         <div style={{ marginTop: '2.5rem', textAlign: 'center' }}>
-          <p className="text-sm text-gray-500 mb-2">테스트용 바로가기</p>
-          <Link href="/admin" className="px-5 py-2.5 bg-[#eef1ed] text-[#2F6F4F] border border-[#2F6F4F]/20 rounded-xl text-sm font-bold shadow-sm hover:bg-[#d8e3da] transition block w-fit mx-auto">
+          <p className="text-sm text-light-taupe mb-2">테스트용 바로가기</p>
+          <Link href="/admin" className="px-5 py-2.5 bg-warm-white text-deep-brown border border-light-taupe rounded-xl text-sm font-bold shadow-sm hover:bg-warm-cream transition block w-fit mx-auto">
              ⚙️ 관리자(Admin) 모드 접속
           </Link>
         </div>

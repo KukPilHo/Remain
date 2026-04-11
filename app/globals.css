@@ -1,21 +1,35 @@
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════
+   Design System — "기록하다" Book-style Palette
+   ══════════════════════════════════════════ */
+
+@theme {
+  --color-warm-cream: #FDF6EC;
+  --color-soft-gold: #E8C96B;
+  --color-deep-brown: #4A3728;
+  --color-muted-sage: #A8B5A0;
+  --color-warm-white: #FEFCF7;
+  --color-light-taupe: #D4C5B2;
+}
+
 :root {
-  --bg-cream: #FFF8F0;
-  --text-primary: #3D2C2C;
-  --text-secondary: #6B5344;
-  --record-red: #E74C3C;
-  --record-red-dark: #C0392B;
-  --record-red-glow: rgba(231, 76, 60, 0.35);
-  --card-bg: #FFFFFF;
-  --card-border: #E8DDD4;
-  --bubble-ai: #F5EDE3;
-  --bubble-parent: #E8F4E8;
-  --accent-brown: #8B7355;
-  --accent-green: #2D6A4F;
-  --error-red: #DC2626;
+  --bg-cream: #FDF6EC;
+  --text-primary: #4A3728;
+  --text-secondary: #7A6A5A;
+  --record-red: #C0392B;
+  --record-red-dark: #96281B;
+  --record-red-glow: rgba(192, 57, 43, 0.3);
+  --card-bg: #FEFCF7;
+  --card-border: #D4C5B2;
+  --bubble-ai: #FDF6EC;
+  --bubble-parent: #FEFCF7;
+  --accent-gold: #E8C96B;
+  --accent-brown: #4A3728;
+  --accent-sage: #A8B5A0;
+  --error-red: #B91C1C;
   --error-bg: #FEF2F2;
-  --processing-bg: #F0F4FF;
+  --processing-bg: #FDF6EC;
 }
 
 /* ── Base ── */
@@ -28,13 +42,13 @@ body {
   color: var(--text-primary);
   font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
   font-size: 20px;
-  line-height: 1.7;
+  line-height: 1.8;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 
 /* ══════════════════════════════════════════
-   Home Page (Phase 1+2 테스트)
+   Home Page
    ══════════════════════════════════════════ */
 
 .main-container {
@@ -46,7 +60,7 @@ body {
   padding: 2rem 1.5rem;
   max-width: 480px;
   margin: 0 auto;
-  gap: 2rem;
+  gap: 2.5rem;
 }
 
 .header {
@@ -54,16 +68,17 @@ body {
 }
 
 .title {
-  font-size: 2.2rem;
+  font-size: 2.4rem;
   font-weight: 800;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 .subtitle {
-  font-size: 1.05rem;
+  font-size: 1rem;
   color: var(--text-secondary);
-  margin-top: 0.25rem;
+  margin-top: 0.4rem;
+  letter-spacing: 0.02em;
 }
 
 /* ── Home Buttons ── */
@@ -77,21 +92,25 @@ body {
 
 .home-main-button {
   width: 100%;
-  background: var(--accent-green);
-  color: white;
+  background: var(--accent-brown);
+  color: #FEFCF7;
   border: none;
   border-radius: 1rem;
   padding: 1.25rem 2rem;
   font-size: 1.3rem;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.15s, background 0.2s;
+  transition: transform 0.15s, background 0.2s, box-shadow 0.2s;
   text-decoration: none;
   text-align: center;
   display: block;
+  box-shadow: 0 4px 16px rgba(74, 55, 40, 0.15);
 }
 
-.home-main-button:hover { background: #1B4332; }
+.home-main-button:hover {
+  background: #3A2A1E;
+  box-shadow: 0 6px 20px rgba(74, 55, 40, 0.2);
+}
 .home-main-button:active { transform: scale(0.97); }
 
 .home-sub-buttons {
@@ -110,13 +129,22 @@ body {
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.15s, background 0.2s;
+  transition: transform 0.15s, background 0.2s, border-color 0.2s;
   text-align: center;
 }
 
-.home-sub-button:hover { background: #F5EDE3; }
+.home-sub-button:hover {
+  background: var(--bg-cream);
+  border-color: var(--accent-gold);
+}
 .home-sub-button:active { transform: scale(0.97); }
-.home-sub-button:disabled { opacity: 0.6; cursor: not-allowed; }
+.home-sub-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* recording indicator on sub-button */
+.home-sub-button.recording {
+  border-color: var(--record-red);
+  background: #FEF2F2;
+}
 
 /* ── Result Card ── */
 .result-area {
@@ -129,20 +157,22 @@ body {
   border-radius: 1rem;
   padding: 1.5rem;
   width: 100%;
-  box-shadow: 0 2px 8px rgba(61, 43, 31, 0.06);
+  box-shadow: 0 2px 8px rgba(74, 55, 40, 0.06);
   animation: fadeIn 0.4s ease-out;
 }
 
 .result-label {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
+  font-size: 0.85rem;
+  color: var(--accent-sage);
   margin-bottom: 0.5rem;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .result-text {
-  font-size: 1.25rem;
-  line-height: 1.8;
+  font-size: 1.2rem;
+  line-height: 1.9;
   color: var(--text-primary);
   word-break: keep-all;
 }
@@ -159,7 +189,7 @@ body {
 }
 
 .error-text {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   color: var(--error-red);
   white-space: pre-line;
   line-height: 1.8;
@@ -168,21 +198,22 @@ body {
 
 .retry-button {
   background: var(--accent-brown);
-  color: white;
+  color: #FEFCF7;
   border: none;
   border-radius: 0.75rem;
   padding: 0.85rem 2rem;
   font-size: 1.05rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.15s;
+  transition: transform 0.15s, background 0.2s;
 }
 
+.retry-button:hover { background: #3A2A1E; }
 .retry-button:active { transform: scale(0.96); }
 
 .processing-card {
   background: var(--processing-bg);
-  border: 1px solid #C7D2FE;
+  border: 1px solid var(--card-border);
   border-radius: 1rem;
   padding: 2rem;
   width: 100%;
@@ -196,25 +227,25 @@ body {
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3.5px solid #C7D2FE;
-  border-top-color: #4F46E5;
+  border: 3px solid var(--card-border);
+  border-top-color: var(--accent-gold);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 .processing-text {
-  font-size: 1.15rem;
-  color: #3730A3;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
 .processing-sub {
-  font-size: 1rem;
-  color: #6366F1;
+  font-size: 0.95rem;
+  color: var(--accent-sage);
 }
 
 /* ══════════════════════════════════════════
-   Session Page (Phase 3+5)
+   Session Page (대화 화면)
    ══════════════════════════════════════════ */
 
 .session-container {
@@ -242,20 +273,21 @@ body {
 }
 
 .session-topic {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
-  margin-top: 0.1rem;
+  margin-top: 0.15rem;
 }
 
 .session-progress {
   display: inline-block;
-  font-size: 0.85rem;
-  color: white;
-  background: var(--accent-brown);
-  padding: 0.15rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--accent-brown);
+  background: rgba(232, 201, 107, 0.25);
+  padding: 0.15rem 0.85rem;
   border-radius: 1rem;
   margin-top: 0.35rem;
-  font-weight: 600;
+  font-weight: 700;
+  border: 1px solid rgba(232, 201, 107, 0.4);
 }
 
 /* ── Chat Area ── */
@@ -263,17 +295,17 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 1rem 1rem;
-  padding-bottom: 200px; /* space for fixed bottom */
+  padding-bottom: 200px;
   display: flex;
   flex-direction: column;
   -webkit-overflow-scrolling: touch;
 }
 
-/* ── Conversation Bubbles ── */
+/* ── Conversation Bubbles (Book-style) ── */
 .conversation-log {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
 .bubble-row {
@@ -287,33 +319,35 @@ body {
 .bubble-right { justify-content: flex-end; }
 
 .bubble-avatar {
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   flex-shrink: 0;
   margin-bottom: 0.25rem;
 }
 
 .bubble {
   max-width: 82%;
-  padding: 1rem 1.15rem;
+  padding: 1.1rem 1.25rem;
   border-radius: 1.1rem;
-  line-height: 1.75;
+  line-height: 1.8;
   word-break: keep-all;
 }
 
 .bubble-ai {
   background: var(--bubble-ai);
+  border: 1px solid var(--card-border);
   border-bottom-left-radius: 0.3rem;
   color: var(--text-primary);
 }
 
 .bubble-parent {
   background: var(--bubble-parent);
+  border: 1px solid var(--card-border);
   color: var(--text-primary);
   border-bottom-right-radius: 0.3rem;
 }
 
 .bubble-text {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
 }
 
 /* ── Session Status Messages ── */
@@ -325,7 +359,7 @@ body {
   padding: 0.85rem 1rem;
   margin-top: 0.5rem;
   background: var(--processing-bg);
-  border: 1px solid #C7D2FE;
+  border: 1px solid var(--card-border);
   border-radius: 1rem;
   animation: fadeIn 0.3s ease-out;
 }
@@ -336,8 +370,8 @@ body {
 }
 
 .session-status-text {
-  font-size: 1.1rem;
-  color: #3730A3;
+  font-size: 1.05rem;
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
@@ -349,7 +383,7 @@ body {
   padding: 2.5rem 1.5rem;
   text-align: center;
   animation: fadeIn 0.5s ease-out;
-  box-shadow: 0 4px 16px rgba(61, 43, 31, 0.06);
+  box-shadow: 0 4px 16px rgba(74, 55, 40, 0.06);
 }
 
 .greeting-emoji {
@@ -365,7 +399,7 @@ body {
 }
 
 .greeting-text {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   color: var(--text-primary);
   margin-bottom: 0.5rem;
 }
@@ -373,24 +407,24 @@ body {
 .greeting-topic {
   font-size: 1rem;
   color: var(--text-secondary);
-  line-height: 1.7;
+  line-height: 1.75;
   margin-bottom: 2rem;
 }
 
 .start-button {
-  background: var(--accent-green);
-  color: white;
+  background: var(--accent-brown);
+  color: #FEFCF7;
   border: none;
   border-radius: 1rem;
   padding: 1.15rem 3.5rem;
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.15s, background 0.2s;
-  box-shadow: 0 4px 12px rgba(45, 106, 79, 0.25);
+  transition: transform 0.15s, background 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 12px rgba(74, 55, 40, 0.2);
 }
 
-.start-button:hover { background: #1B4332; }
+.start-button:hover { background: #3A2A1E; }
 .start-button:active { transform: scale(0.96); }
 
 /* ── Completed Card ── */
@@ -402,7 +436,7 @@ body {
   text-align: center;
   margin-top: 1rem;
   animation: fadeIn 0.5s ease-out;
-  box-shadow: 0 4px 16px rgba(61, 43, 31, 0.06);
+  box-shadow: 0 4px 16px rgba(74, 55, 40, 0.06);
 }
 
 .completed-emoji {
@@ -418,7 +452,7 @@ body {
 }
 
 .completed-sub {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   color: var(--text-secondary);
   line-height: 1.8;
   margin-bottom: 1.5rem;
@@ -426,6 +460,7 @@ body {
 
 .completed-summary {
   background: var(--bubble-ai);
+  border: 1px solid var(--card-border);
   border-radius: 1rem;
   padding: 1.25rem;
   margin-bottom: 1.5rem;
@@ -433,22 +468,23 @@ body {
 }
 
 .completed-summary-label {
-  font-size: 0.9rem;
-  color: var(--accent-brown);
+  font-size: 0.85rem;
+  color: var(--accent-sage);
   font-weight: 600;
   margin-bottom: 0.5rem;
+  letter-spacing: 0.03em;
 }
 
 .completed-summary-text {
   font-size: 1.05rem;
   color: var(--text-primary);
-  line-height: 1.7;
+  line-height: 1.8;
   word-break: keep-all;
 }
 
 .completed-home-button {
   background: var(--accent-brown);
-  color: white;
+  color: #FEFCF7;
   border: none;
   border-radius: 0.85rem;
   padding: 1rem 2.5rem;
@@ -457,9 +493,10 @@ body {
   cursor: pointer;
   text-decoration: none;
   display: inline-block;
-  transition: transform 0.15s;
+  transition: transform 0.15s, background 0.2s;
 }
 
+.completed-home-button:hover { background: #3A2A1E; }
 .completed-home-button:active { transform: scale(0.96); }
 
 /* ── Session Bottom (Fixed) ── */
@@ -529,7 +566,7 @@ body {
 }
 
 .status-text {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   color: var(--text-secondary);
   font-weight: 500;
   text-align: center;
@@ -543,10 +580,13 @@ body {
   padding: 0.45rem 1.25rem;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s;
 }
 
-.end-button:hover { background: rgba(0, 0, 0, 0.04); }
+.end-button:hover {
+  background: rgba(74, 55, 40, 0.04);
+  border-color: var(--accent-gold);
+}
 
 .end-button:disabled {
   opacity: 0.4;
@@ -555,9 +595,9 @@ body {
 
 /* ── Animations ── */
 @keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.5); }
-  50% { box-shadow: 0 0 0 22px rgba(231, 76, 60, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.45); }
+  50% { box-shadow: 0 0 0 22px rgba(192, 57, 43, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0); }
 }
 
 @keyframes spin {
