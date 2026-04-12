@@ -30,7 +30,7 @@ export interface Turn {
   timestamp: Date;
 }
 
-/* ── 세션 상태 ── */
+/* ── 세션 상태 (클라이언트용) ── */
 export interface SessionState {
   sessionId: string;
   parentName: string;
@@ -38,13 +38,33 @@ export interface SessionState {
   currentQuestionId: string;
   turns: Turn[];
   currentTurn: number;
-  maxTurns: number; // 기본 8 (AI 4턴 + 부모님 4턴)
+  maxTurns: number;
   status:
     | 'greeting'
     | 'waiting_answer'
     | 'processing'
     | 'asking'
     | 'completed';
+}
+
+/* ── DB 세션 ── */
+export interface DbSession {
+  id: string;
+  question_id: string;
+  person_id?: string;
+  status: 'in_progress' | 'completed';
+  created_at: string;
+}
+
+/* ── DB 세션 턴 ── */
+export interface DbSessionTurn {
+  id: string;
+  session_id: string;
+  turn_index: number;
+  role: 'ai' | 'parent';
+  text: string;
+  audio_url?: string;
+  created_at: string;
 }
 
 /* ── 질문 (하드코딩용 레거시) ── */
@@ -68,8 +88,8 @@ export interface DbQuestion {
   };
   recipient_name?: string;
   person_id?: string;
-  photo_request?: string;   // 요청할 사진 안내 문구
-  purpose?: string;         // 이 질문이 노리는 것 (관리자 메모)
+  photo_request?: string;
+  purpose?: string;
   follow_ups?: FollowUpTemplate[];
   is_deleted?: boolean;
   created_at: string;

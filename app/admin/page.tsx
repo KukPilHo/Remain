@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { PlusCircle, MessageSquare, Image as ImageIcon, Check, Copy, ChevronUp, ChevronDown, Mic, Trash2, AlertTriangle, X, Eye, ZoomIn, Users, UserPlus, List, Plus, GripVertical } from 'lucide-react';
+import { PlusCircle, MessageSquare, Image as ImageIcon, Check, Copy, ChevronUp, ChevronDown, Mic, Trash2, AlertTriangle, X, Eye, ZoomIn, Users, UserPlus, List, Plus, GripVertical, Play, Volume2, Clock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { Person, FollowUpTemplate } from '@/types';
+import type { Person, FollowUpTemplate, DbSessionTurn } from '@/types';
 
 /* ─────────────── 타입 정의 ─────────────── */
 interface Question {
@@ -26,6 +26,13 @@ interface Response {
   created_at: string;
 }
 
+interface DbSessionWithTurns {
+  id: string;
+  status: string;
+  created_at: string;
+  turns: DbSessionTurn[];
+}
+
 /* ─────────────── 컴포넌트 ─────────────── */
 export default function AdminPage() {
   /* ── 사람 관리 ── */
@@ -40,10 +47,13 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  /* ── 답변 열람 ── */
+  /* ── 답변 열람 (세션 + 턴 기반) ── */
   const [viewingResponsesId, setViewingResponsesId] = useState<string | null>(null);
   const [questionResponses, setQuestionResponses] = useState<Response[]>([]);
+  const [questionSessions, setQuestionSessions] = useState<DbSessionWithTurns[]>([]);
   const [responsesLoading, setResponsesLoading] = useState(false);
+  const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
   /* ── 꼬리질문 열람 ── */
   const [viewingFollowUpsId, setViewingFollowUpsId] = useState<string | null>(null);
@@ -252,24 +262,70 @@ export default function AdminPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  /* ══════════════ 답변 조회 ══════════════ */
+  /* ══════════════ 음성 재생 ══════════════ */
+  const playAudio = (url: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (playingAudioUrl === url) {
+      setPlayingAudioUrl(null);
+      return;
+    }
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    setPlayingAudioUrl(url);
+    audio.onended = () => { setPlayingAudioUrl(null); audioRef.current = null; };
+    audio.onerror = () => { setPlayingAudioUrl(null); audioRef.current = null; };
+    audio.play().catch(() => setPlayingAudioUrl(null));
+  };
+
+  /* ══════════════ 답변 조회 (세션 + 턴 기반) ══════════════ */
   const toggleResponses = async (questionId: string) => {
     if (viewingResponsesId === questionId) {
       setViewingResponsesId(null);
       setQuestionResponses([]);
+      setQuestionSessions([]);
       return;
     }
     setViewingResponsesId(questionId);
     setViewingFollowUpsId(null);
     setResponsesLoading(true);
     try {
-      const { data, error } = await supabase
+      // 1) 세션 + 턴 로드
+      const { data: sessionsData, error: sessError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('question_id', questionId)
+        .order('created_at', { ascending: false });
+
+      if (!sessError && sessionsData && sessionsData.length > 0) {
+        const sessionsWithTurns: DbSessionWithTurns[] = [];
+        for (const sess of sessionsData) {
+          const { data: turnsData } = await supabase
+            .from('session_turns')
+            .select('*')
+            .eq('session_id', sess.id)
+            .order('turn_index', { ascending: true });
+          sessionsWithTurns.push({
+            id: sess.id,
+            status: sess.status,
+            created_at: sess.created_at,
+            turns: (turnsData || []) as DbSessionTurn[],
+          });
+        }
+        setQuestionSessions(sessionsWithTurns);
+      } else {
+        setQuestionSessions([]);
+      }
+
+      // 2) 레거시 responses도 로드 (하위 호환)
+      const { data: respData, error: respError } = await supabase
         .from('responses')
         .select('*')
         .eq('question_id', questionId)
         .order('created_at', { ascending: true });
-      if (error) throw error;
-      setQuestionResponses((data || []) as Response[]);
+      if (!respError) setQuestionResponses((respData || []) as Response[]);
     } catch (err) { console.error(err); }
     finally { setResponsesLoading(false); }
   };
@@ -769,46 +825,88 @@ export default function AdminPage() {
                       </div>
                     )}
 
-                    {/* ──── 답변 내역 패널 ──── */}
+                    {/* ──── 답변 내역 패널 (세션 + 턴 기반) ──── */}
                     {viewingResponsesId === q.id && (
                       <div className="border-t border-light-taupe/50 bg-warm-cream/60 p-5">
                         <div className="ml-2 pl-4 border-l-4 border-deep-brown/20">
                           <h4 className="text-sm font-bold text-deep-brown mb-4 flex items-center gap-2">
                             <MessageSquare size={16} />
-                            {q.recipient_name || '어르신'}님이 남기신 이야기
+                            {q.recipient_name || '어르신'}님의 대화 기록
                           </h4>
                           {responsesLoading ? (
                             <p className="text-sm text-light-taupe py-4">불러오는 중...</p>
-                          ) : questionResponses.length === 0 ? (
+                          ) : questionSessions.length === 0 && questionResponses.length === 0 ? (
                             <div className="bg-warm-white p-4 rounded-xl border border-light-taupe shadow-sm inline-block">
                               <p className="text-sm text-light-taupe font-medium">아직 수집된 답변이 없어요. 링크를 전달해보세요!</p>
                             </div>
                           ) : (
-                            <div className="flex flex-col gap-3">
-                              {questionResponses.map((res, i) => (
-                                <div key={res.id} className="bg-warm-white p-5 rounded-xl border border-light-taupe shadow-sm relative">
-                                  <div className="absolute top-5 left-5 w-7 h-7 rounded-full bg-warm-cream text-deep-brown flex items-center justify-center text-xs font-bold ring-2 ring-warm-white">
-                                    {i + 1}
+                            <div className="flex flex-col gap-5">
+                              {/* 세션 기반 대화 로그 */}
+                              {questionSessions.map((sess, si) => (
+                                <div key={sess.id} className="bg-warm-white rounded-xl border border-light-taupe shadow-sm overflow-hidden">
+                                  <div className="px-4 py-3 bg-warm-cream/80 border-b border-light-taupe/50 flex items-center gap-2">
+                                    <Clock size={14} className="text-light-taupe" />
+                                    <span className="text-xs font-bold text-deep-brown">세션 {si + 1}</span>
+                                    <span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full font-bold ${sess.status === 'completed' ? 'bg-muted-sage/20 text-muted-sage' : 'bg-soft-gold/20 text-soft-gold'}`}>
+                                      {sess.status === 'completed' ? '완료' : '진행중'}
+                                    </span>
+                                    <span className="ml-auto text-[11px] text-light-taupe">{new Date(sess.created_at).toLocaleString('ko-KR')}</span>
                                   </div>
-                                  <div className="pl-10">
-                                    <p className="text-deep-brown leading-relaxed whitespace-pre-wrap text-[15px]">{res.answer}</p>
-                                    {res.photo_urls && res.photo_urls.length > 0 && (
-                                      <div className="flex gap-2 mt-3 flex-wrap">
-                                        {res.photo_urls.map((url, pi) => (
-                                          <img
-                                            key={pi}
-                                            src={url}
-                                            alt={`첨부 사진 ${pi + 1}`}
-                                            className="w-20 h-20 object-cover rounded-lg border border-light-taupe cursor-pointer hover:opacity-80 transition"
-                                            onClick={() => setViewingPhotoUrl(url)}
-                                          />
-                                        ))}
+                                  <div className="p-4 flex flex-col gap-2">
+                                    {sess.turns.length === 0 ? (
+                                      <p className="text-xs text-light-taupe">턴 데이터 없음</p>
+                                    ) : sess.turns.map((turn) => (
+                                      <div key={turn.id} className={`flex items-start gap-2 ${turn.role === 'ai' ? '' : 'flex-row-reverse'}`}>
+                                        <span className="text-lg flex-shrink-0 mt-0.5">{turn.role === 'ai' ? '🤖' : '👤'}</span>
+                                        <div className={`max-w-[80%] px-3.5 py-2.5 rounded-xl text-[13px] leading-relaxed ${
+                                          turn.role === 'ai'
+                                            ? 'bg-warm-cream border border-light-taupe/50 text-deep-brown rounded-bl-sm'
+                                            : 'bg-deep-brown/5 border border-light-taupe/30 text-deep-brown rounded-br-sm'
+                                        }`}>
+                                          <p className="whitespace-pre-wrap">{turn.text}</p>
+                                          {turn.audio_url && (
+                                            <button
+                                              onClick={() => playAudio(turn.audio_url!)}
+                                              className={`mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg transition ${
+                                                playingAudioUrl === turn.audio_url
+                                                  ? 'bg-soft-gold/30 text-deep-brown'
+                                                  : 'bg-light-taupe/20 text-light-taupe hover:bg-light-taupe/30'
+                                              }`}
+                                            >
+                                              {playingAudioUrl === turn.audio_url ? <><Volume2 size={12} /> 재생 중...</> : <><Play size={12} /> 음성 듣기</>}
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
-                                    )}
-                                    <p className="text-[11px] text-light-taupe mt-3 font-medium">{new Date(res.created_at).toLocaleString('ko-KR')}</p>
+                                    ))}
                                   </div>
                                 </div>
                               ))}
+
+                              {/* 레거시 응답 (세션이 없는 옛 데이터) */}
+                              {questionSessions.length === 0 && questionResponses.length > 0 && (
+                                <div className="mt-2">
+                                  <p className="text-[11px] text-light-taupe mb-2 italic">⚠️ 레거시 데이터 (세션 이전 기록)</p>
+                                  <div className="flex flex-col gap-3">
+                                    {questionResponses.map((res, i) => (
+                                      <div key={res.id} className="bg-warm-white p-4 rounded-xl border border-light-taupe shadow-sm relative">
+                                        <div className="absolute top-4 left-4 w-6 h-6 rounded-full bg-warm-cream text-deep-brown flex items-center justify-center text-[10px] font-bold">{i + 1}</div>
+                                        <div className="pl-9">
+                                          <p className="text-deep-brown leading-relaxed whitespace-pre-wrap text-[14px]">{res.answer}</p>
+                                          {res.photo_urls && res.photo_urls.length > 0 && (
+                                            <div className="flex gap-2 mt-2 flex-wrap">
+                                              {res.photo_urls.map((url, pi) => (
+                                                <img key={pi} src={url} alt={`사진 ${pi+1}`} className="w-16 h-16 object-cover rounded-lg border border-light-taupe cursor-pointer hover:opacity-80 transition" onClick={() => setViewingPhotoUrl(url)} />
+                                              ))}
+                                            </div>
+                                          )}
+                                          <p className="text-[11px] text-light-taupe mt-2">{new Date(res.created_at).toLocaleString('ko-KR')}</p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

@@ -14,29 +14,79 @@ import { Camera, Upload, Check } from 'lucide-react';
 const MAX_PARENT_TURNS = 4;
 const PARENT_NAME = '어르신';
 
+/* ── 음성 업로드 헬퍼 ── */
+async function uploadAudioBlob(
+  blob: Blob,
+  dbSessionId: string,
+  turnIndex: number,
+  role: 'ai' | 'parent'
+): Promise<string | null> {
+  try {
+    const ext = blob.type.includes('webm') ? 'webm' : blob.type.includes('mp4') ? 'm4a' : 'mp3';
+    const formData = new FormData();
+    formData.append('audio', blob, `recording.${ext}`);
+    formData.append('sessionId', dbSessionId);
+    formData.append('turnIndex', String(turnIndex));
+    formData.append('role', role);
+
+    const response = await fetch('/api/upload-audio', { method: 'POST', body: formData });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.audioUrl || null;
+  } catch (err) {
+    console.error('Audio upload failed:', err);
+    return null;
+  }
+}
+
+/* ── 턴 DB 저장 헬퍼 ── */
+async function saveTurnToDb(
+  dbSessionId: string,
+  turnIndex: number,
+  role: 'ai' | 'parent',
+  text: string,
+  audioUrl?: string | null
+) {
+  try {
+    await supabase.from('session_turns').insert([{
+      session_id: dbSessionId,
+      turn_index: turnIndex,
+      role,
+      text,
+      audio_url: audioUrl || null,
+    }]);
+  } catch (err) {
+    console.error('Turn save failed:', err);
+  }
+}
+
 export default function SessionPage() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
+  const questionId = typeof params.sessionId === 'string' ? params.sessionId : '';
   const nameParam = searchParams.get('name') || PARENT_NAME;
 
   const [dbQuestion, setDbQuestion] = useState<any>(null);
   const [loadingInitial, setLoadingInitial] = useState(true);
 
+  /* ── DB 세션 ID (sessions 테이블의 row) ── */
+  const [dbSessionId, setDbSessionId] = useState<string | null>(null);
+  const turnIndexRef = useRef(0);
+
   /* ── 꼬리질문 템플릿 ── */
   const [followUpTemplates, setFollowUpTemplates] = useState<FollowUpTemplate[]>([]);
   const [usedFollowUpIndices, setUsedFollowUpIndices] = useState<number[]>([]);
 
-  /* ── 사진 업로드 (대화 완료 후) ── */
+  /* ── 사진 업로드 ── */
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [session, setSession] = useState<SessionState>({
-    sessionId,
+    sessionId: questionId,
     parentName: nameParam,
     topic: '추억 이야기',
-    currentQuestionId: sessionId,
+    currentQuestionId: questionId,
     turns: [],
     currentTurn: 0,
     maxTurns: MAX_PARENT_TURNS * 2,
@@ -45,23 +95,24 @@ export default function SessionPage() {
 
   const [errorMessage, setErrorMessage] = useState('');
   const [processingStep, setProcessingStep] = useState('');
-  
+
   const sessionRef = useRef<RecordingSession | null>(null);
   const [recordingStatus, setRecordingStatus] = useState(false);
   const parentTurnCount = useRef(0);
 
+  /* ── 마지막 녹음된 blob 보관 (Storage 업로드용) ── */
+  const lastRecordedBlobRef = useRef<Blob | null>(null);
+
+  /* ══════════════ 질문 + 꼬리질문 로드 ══════════════ */
   useEffect(() => {
-    if (!sessionId) return;
+    if (!questionId) return;
     const fetchQuestion = async () => {
       try {
         const { data, error } = await supabase
-          .from('questions')
-          .select('*')
-          .eq('id', sessionId)
-          .single();
+          .from('questions').select('*').eq('id', questionId).single();
         if (error) {
           console.error(error);
-          setErrorMessage('질문을 찾을 수 없거나 데이터베이스 연결이 없습니다. 환경변수(.env.local)를 확인해주세요.');
+          setErrorMessage('질문을 찾을 수 없거나 데이터베이스 연결이 없습니다.');
         }
         if (data) {
           setDbQuestion(data);
@@ -70,26 +121,41 @@ export default function SessionPage() {
           }
         }
         const { data: fuData, error: fuError } = await supabase
-          .from('follow_up_templates')
-          .select('*')
-          .eq('question_id', sessionId)
+          .from('follow_up_templates').select('*')
+          .eq('question_id', questionId)
           .order('sort_order', { ascending: true });
         if (!fuError && fuData) {
           setFollowUpTemplates(fuData as FollowUpTemplate[]);
         }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoadingInitial(false);
-      }
+      } catch (err) { console.error(err); }
+      finally { setLoadingInitial(false); }
     };
     fetchQuestion();
-  }, [sessionId]);
+  }, [questionId]);
 
-  const handleStartSession = useCallback(() => {
+  /* ══════════════ 세션 시작 ══════════════ */
+  const handleStartSession = useCallback(async () => {
+    // DB에 세션 row 생성
+    try {
+      const insertObj: any = {
+        question_id: questionId,
+        status: 'in_progress',
+      };
+      if (dbQuestion?.person_id) insertObj.person_id = dbQuestion.person_id;
+
+      const { data, error } = await supabase
+        .from('sessions').insert([insertObj]).select();
+      if (error) {
+        console.error('Session creation failed:', error);
+      } else if (data && data[0]) {
+        setDbSessionId(data[0].id);
+      }
+    } catch (err) { console.error(err); }
+
     setSession(prev => ({ ...prev, status: 'waiting_answer' }));
-  }, []);
+  }, [questionId, dbQuestion]);
 
+  /* ══════════════ 녹음 시작/중지 ══════════════ */
   const handleRecord = async () => {
     if (recordingStatus && sessionRef.current) {
       setProcessingStep('말씀을 들었습니다. 텍스트로 정리하는 중입니다...');
@@ -97,22 +163,30 @@ export default function SessionPage() {
       try {
         const audioBlob = await stopRecording(sessionRef.current);
         sessionRef.current = null;
+
+        // blob을 보관해둠 (나중에 Storage 업로드)
+        lastRecordedBlobRef.current = audioBlob;
+
         const ext = getFileExtension(audioBlob.type);
         const formData = new FormData();
         formData.append('audio', audioBlob, `recording.${ext}`);
         const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '음성 변환에 실패했습니다.');
+
         handleAnswerSubmit(data.text);
       } catch (err: any) {
         setErrorMessage(err.message || '음성을 처리하는데 실패했습니다.');
         setSession(prev => ({ ...prev, status: 'waiting_answer' }));
         setProcessingStep('');
+        lastRecordedBlobRef.current = null;
       }
       return;
     }
+
     try {
       setErrorMessage('');
+      lastRecordedBlobRef.current = null;
       const audioSession = await startRecording();
       sessionRef.current = audioSession;
       setRecordingStatus(true);
@@ -122,21 +196,41 @@ export default function SessionPage() {
     }
   };
 
+  /* ══════════════ 답변 처리 (핵심 로직) ══════════════ */
   const handleAnswerSubmit = async (textAnswer: string) => {
     setSession(prev => ({ ...prev, status: 'processing' }));
     setErrorMessage('');
     setProcessingStep('이야기를 곱씹고 저장하고 있어요...');
-    try {
-      const { error: dbError } = await supabase
-        .from('responses')
-        .insert([{ question_id: sessionId, answer: textAnswer }]);
-      if (dbError) console.warn('DB에 저장하지 못했습니다:', dbError);
 
-      const parentTurn: Turn = { role: 'parent', text: textAnswer, timestamp: new Date() };
+    try {
+      // 1) 사용자 음성 Storage 업로드 (blob이 있을 때만)
+      let parentAudioUrl: string | null = null;
+      if (lastRecordedBlobRef.current && dbSessionId) {
+        parentAudioUrl = await uploadAudioBlob(
+          lastRecordedBlobRef.current,
+          dbSessionId,
+          turnIndexRef.current,
+          'parent'
+        );
+      }
+      lastRecordedBlobRef.current = null;
+
+      // 2) 사용자 턴 DB 저장
+      if (dbSessionId) {
+        await saveTurnToDb(dbSessionId, turnIndexRef.current, 'parent', textAnswer, parentAudioUrl);
+      }
+
+      // 3) 레거시 responses에도 저장 (하위 호환)
+      await supabase.from('responses').insert([{ question_id: questionId, answer: textAnswer, audio_url: parentAudioUrl }]);
+
+      // 4) 클라이언트 상태 업데이트
+      const parentTurn: Turn = { role: 'parent', text: textAnswer, audioUrl: parentAudioUrl || undefined, timestamp: new Date() };
       parentTurnCount.current += 1;
+      turnIndexRef.current += 1;
       const updatedTurns = [...session.turns, parentTurn];
       setSession(prev => ({ ...prev, turns: updatedTurns, currentTurn: prev.currentTurn + 1 }));
 
+      // 5) LLM 꼬리질문 생성
       const isLastTurn = parentTurnCount.current >= MAX_PARENT_TURNS;
       setProcessingStep(isLastTurn ? '마무리 인사를 준비하고 있어요...' : '새로운 질문을 만들고 있어요...');
 
@@ -157,6 +251,7 @@ export default function SessionPage() {
       const llmData = await llmResponse.json();
       if (!llmResponse.ok) throw new Error(llmData.error || '질문 생성에 실패했습니다.');
 
+      // 꼬리질문 추적
       if (!isLastTurn && followUpTemplates.length > 0) {
         const nextIdx = usedFollowUpIndices.length;
         if (nextIdx < followUpTemplates.length) {
@@ -164,22 +259,45 @@ export default function SessionPage() {
         }
       }
 
-      const aiTurn: Turn = { role: 'ai', text: llmData.text, timestamp: new Date() };
-      setSession(prev => ({ ...prev, turns: [...prev.turns, aiTurn], status: 'asking' }));
-      setProcessingStep('');
-
-      await fetch('/api/synthesize', {
+      // 6) TTS 생성 + Storage 업로드 + 재생
+      setProcessingStep('AI 음성을 준비하고 있어요...');
+      const ttsRes = await fetch('/api/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: llmData.text }),
-      })
-      .then(res => res.blob())
-      .then(blob => {
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.onended = () => { URL.revokeObjectURL(audioUrl); setSession(prev => ({ ...prev, status: isLastTurn ? 'completed' : 'waiting_answer' })); };
-        audio.play().catch(console.error);
       });
+
+      const ttsBlob = await ttsRes.blob();
+
+      // AI 음성 Storage 업로드
+      let aiAudioUrl: string | null = null;
+      if (dbSessionId) {
+        aiAudioUrl = await uploadAudioBlob(ttsBlob, dbSessionId, turnIndexRef.current, 'ai');
+      }
+
+      // AI 턴 DB 저장
+      if (dbSessionId) {
+        await saveTurnToDb(dbSessionId, turnIndexRef.current, 'ai', llmData.text, aiAudioUrl);
+      }
+
+      const aiTurn: Turn = { role: 'ai', text: llmData.text, audioUrl: aiAudioUrl || undefined, timestamp: new Date() };
+      turnIndexRef.current += 1;
+      setSession(prev => ({ ...prev, turns: [...prev.turns, aiTurn], status: 'asking' }));
+      setProcessingStep('');
+
+      // 브라우저에서 재생
+      const audioUrl = URL.createObjectURL(ttsBlob);
+      const audio = new Audio(audioUrl);
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        if (isLastTurn && dbSessionId) {
+          // 세션 완료 처리
+          supabase.from('sessions').update({ status: 'completed' }).eq('id', dbSessionId).then(() => {});
+        }
+        setSession(prev => ({ ...prev, status: isLastTurn ? 'completed' : 'waiting_answer' }));
+      };
+      audio.play().catch(console.error);
+
     } catch (err: any) {
       console.error(err);
       setErrorMessage('오류가 발생했어요. 다시 시도해주세요.');
@@ -188,6 +306,7 @@ export default function SessionPage() {
     }
   };
 
+  /* ══════════════ 사진 업로드 ══════════════ */
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -196,7 +315,7 @@ export default function SessionPage() {
     for (const file of Array.from(files)) {
       try {
         const ext = file.name.split('.').pop();
-        const fileName = `${sessionId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const fileName = `${questionId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
         const { error } = await supabase.storage.from('photos').upload(fileName, file, { cacheControl: '3600', upsert: false });
         if (error) { console.error('사진 업로드 실패:', error); continue; }
         const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName);
@@ -208,7 +327,7 @@ export default function SessionPage() {
       try {
         const { data: latestResp } = await supabase
           .from('responses').select('id, photo_urls')
-          .eq('question_id', sessionId).order('created_at', { ascending: false }).limit(1).single();
+          .eq('question_id', questionId).order('created_at', { ascending: false }).limit(1).single();
         if (latestResp) {
           const existing = latestResp.photo_urls || [];
           await supabase.from('responses').update({ photo_urls: [...existing, ...newUrls] }).eq('id', latestResp.id);
@@ -219,24 +338,34 @@ export default function SessionPage() {
     if (photoInputRef.current) photoInputRef.current.value = '';
   };
 
+  /* ══════════════ 빠른 테스트 ══════════════ */
   const handleFastForwardComplete = useCallback(async () => {
     setProcessingStep('빠른 테스트(4턴) 자동 진행 중...');
     setSession(prev => ({ ...prev, status: 'processing' }));
     const mockTurns: Turn[] = [
-      { role: 'ai', text: '테스트 환경 변수 기반으로 첫 인사를 먼저 드립니다.', timestamp: new Date() },
+      { role: 'ai', text: '테스트: 첫 인사를 드립니다.', timestamp: new Date() },
       { role: 'parent', text: '네, 정말 좋았던 기억입니다.', timestamp: new Date() },
-      { role: 'ai', text: '그렇군요. 혹시 그때 어떤 감정이 드셨나요?', timestamp: new Date() },
+      { role: 'ai', text: '그렇군요. 어떤 감정이 드셨나요?', timestamp: new Date() },
       { role: 'parent', text: '참 따뜻하고 즐거웠습니다.', timestamp: new Date() },
-      { role: 'ai', text: '특별한 감정을 느끼셨군요. 지금도 비슷한 순간이 있으신가요?', timestamp: new Date() },
-      { role: 'parent', text: '가끔 가족과 밥 먹을 때 그런 것 같습니다.', timestamp: new Date() },
-      { role: 'ai', text: '소중한 이야기 잘 들었습니다. 마지막으로 하시고 싶은 말씀 있나요?', timestamp: new Date() },
+      { role: 'ai', text: '특별한 감정이군요. 비슷한 순간이 있으신가요?', timestamp: new Date() },
+      { role: 'parent', text: '가끔 가족과 밥 먹을 때요.', timestamp: new Date() },
+      { role: 'ai', text: '소중한 이야기 잘 들었습니다. 마지막으로 하실 말씀은?', timestamp: new Date() },
       { role: 'parent', text: '여기까지 할게요, 감사합니다.', timestamp: new Date() }
     ];
-    try { if (sessionId) { await supabase.from('responses').insert([{ question_id: sessionId, answer: '빠른 전체 스킵 테스트 답변 완료' }]); } } catch(err) {}
+    try {
+      if (questionId) {
+        await supabase.from('responses').insert([{ question_id: questionId, answer: '빠른 전체 스킵 테스트' }]);
+      }
+    } catch(err) {}
     parentTurnCount.current = 4;
+    if (dbSessionId) {
+      await supabase.from('sessions').update({ status: 'completed' }).eq('id', dbSessionId);
+    }
     setSession(prev => ({ ...prev, turns: mockTurns, status: 'completed', currentTurn: 8 }));
     setProcessingStep('');
-  }, [sessionId]);
+  }, [questionId, dbSessionId]);
+
+  /* ══════════════ 렌더링 ══════════════ */
 
   if (loadingInitial) {
     return <main className="min-h-screen bg-warm-cream flex flex-col items-center justify-center p-10"><p className="text-deep-brown">로딩 중입니다...</p></main>;
@@ -272,16 +401,16 @@ export default function SessionPage() {
           <div className="flex-1 flex flex-col">
             {parentTurnCount.current === 0 && dbQuestion && (
               <div className="border-b border-light-taupe bg-warm-cream p-4">
-                <MemoryStimulator 
-                  type={dbQuestion.type as any} 
-                  content={dbQuestion.content} 
-                  onAnswerSubmit={handleAnswerSubmit} 
+                <MemoryStimulator
+                  type={dbQuestion.type as any}
+                  content={dbQuestion.content}
+                  onAnswerSubmit={handleAnswerSubmit}
                   isRecording={recordingStatus}
                   onToggleRecording={handleRecord}
                 />
               </div>
             )}
-            
+
             <div className="flex-1 p-4 max-h-[50vh] overflow-y-auto">
               <ConversationLog turns={session.turns} parentName={session.parentName} />
               {processingStep && <div className="text-sm text-light-taupe text-center animate-pulse mt-4 font-medium">{processingStep}</div>}
@@ -319,33 +448,26 @@ export default function SessionPage() {
               소중한 이야기를 들려주셔서 대단히 감사합니다.<br/>멋진 자서전의 한 페이지가 완성되었어요!
             </p>
 
-            {/* ── 사진 업로드 영역 ── */}
             {dbQuestion?.photo_request && (
               <div className="w-full max-w-md bg-warm-cream rounded-2xl border border-light-taupe p-6 mb-6">
                 <div className="flex items-center gap-2 mb-3">
                   <Camera size={20} className="text-soft-gold" />
                   <h4 className="font-bold text-deep-brown">추억 사진을 남겨주세요</h4>
                 </div>
-                <p className="text-sm text-deep-brown/60 mb-4 leading-relaxed">
-                  📸 {dbQuestion.photo_request}
-                </p>
+                <p className="text-sm text-deep-brown/60 mb-4 leading-relaxed">📸 {dbQuestion.photo_request}</p>
 
                 {uploadedPhotos.length > 0 && (
                   <div className="flex gap-2 flex-wrap mb-4">
                     {uploadedPhotos.map((url, i) => (
                       <div key={i} className="relative group">
                         <img src={url} alt={`업로드된 사진 ${i + 1}`} className="w-20 h-20 object-cover rounded-xl border border-light-taupe shadow-sm" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-xl transition" />
                       </div>
                     ))}
                   </div>
                 )}
 
-                <button
-                  onClick={() => photoInputRef.current?.click()}
-                  disabled={photoUploading}
-                  className="w-full py-3 bg-warm-white border-2 border-dashed border-light-taupe rounded-xl text-deep-brown font-bold hover:bg-warm-cream transition flex items-center justify-center gap-2 disabled:opacity-50"
-                >
+                <button onClick={() => photoInputRef.current?.click()} disabled={photoUploading}
+                  className="w-full py-3 bg-warm-white border-2 border-dashed border-light-taupe rounded-xl text-deep-brown font-bold hover:bg-warm-cream transition flex items-center justify-center gap-2 disabled:opacity-50">
                   {photoUploading ? <>⏳ 업로드 중...</> : <><Upload size={18} /> 사진 선택하기</>}
                 </button>
                 <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload} />
@@ -363,12 +485,12 @@ export default function SessionPage() {
           </div>
         )}
       </section>
-      
-      {/* Dev Mode Skip */}
+
       {session.status !== 'greeting' && session.status !== 'completed' && (
         <div className="fixed bottom-4 right-4 flex flex-col items-end gap-3 z-50">
           {process.env.NODE_ENV === 'development' && (
-            <button onClick={handleFastForwardComplete} className="px-5 py-2 bg-gray-800 text-white text-xs font-semibold rounded-full shadow-lg hover:bg-black transition border border-gray-600" disabled={session.status === 'processing' || session.status === 'asking'}>
+            <button onClick={handleFastForwardComplete} className="px-5 py-2 bg-gray-800 text-white text-xs font-semibold rounded-full shadow-lg hover:bg-black transition border border-gray-600"
+              disabled={session.status === 'processing' || session.status === 'asking'}>
                ⏩ 빠른 테스트 완료 (4턴)
             </button>
           )}
