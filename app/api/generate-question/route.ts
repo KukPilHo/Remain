@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.create({
       model: aiConfig.llm.model,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: aiConfig.llm.max_tokens,
+      max_completion_tokens: aiConfig.llm.max_tokens,
       temperature: aiConfig.llm.temperature,
     });
 

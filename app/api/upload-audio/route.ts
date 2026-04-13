@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// 서비스 역할 클라이언트 (Storage 업로드에 필요)
+// 서비스 역할 클라이언트 (Storage 업로드 시 RLS 우회를 위해 service_role 키 사용)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(request: Request) {
