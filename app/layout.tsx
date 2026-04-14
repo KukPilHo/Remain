@@ -13,7 +13,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" suppressHydrationWarning>
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+      <body className="min-h-full flex  flex-col" suppressHydrationWarning>
         {children}
       </body>
     </html>
